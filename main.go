@@ -442,6 +442,11 @@ func getCommands() map[string]cliCommand {
 			description: "Attempt to catch a pokemon",
 			callback:    commandCatch,
 		},
+		"inspect": {
+			name:        "inspect",
+			description: "Display details of a caught pokemon",
+			callback:    commandInspect,
+		},
 	}
 }
 
@@ -462,6 +467,7 @@ func commandHelp(cfg *config, args ...string) error {
 	fmt.Println("mapb: Displays the names of the previous 20 location areas in the Pokemon world. It's a way to go back.")
 	fmt.Println("explore <area_name>: Explore a location area")
 	fmt.Println("catch <pokemon_name>: Attempt to catch a pokemon")
+	fmt.Println("inspect <pokemon_name>: Display details of a caught pokemon")
 	fmt.Println()
 	return nil
 }
@@ -472,7 +478,6 @@ func commandMap(cfg *config, args ...string) error {
 		locationAreasURL = *cfg.nextLocationURL
 	}
 
-	// Check cache first
 	if val, ok := cfg.pokeapiClient.Get(locationAreasURL); ok {
 		var locationAreasResp RespShallowLocations
 		err := json.Unmarshal(val, &locationAreasResp)
@@ -489,7 +494,6 @@ func commandMap(cfg *config, args ...string) error {
 		return nil
 	}
 
-	// Make API request
 	res, err := http.Get(locationAreasURL)
 	if err != nil {
 		return err
@@ -501,7 +505,6 @@ func commandMap(cfg *config, args ...string) error {
 		return err
 	}
 
-	// Add to cache
 	cfg.pokeapiClient.Add(locationAreasURL, body)
 
 	var locationAreasResp RespShallowLocations
@@ -525,7 +528,6 @@ func commandMapb(cfg *config, args ...string) error {
 		return nil
 	}
 
-	// Check cache first
 	if val, ok := cfg.pokeapiClient.Get(*cfg.previousLocationURL); ok {
 		var locationAreasResp RespShallowLocations
 		err := json.Unmarshal(val, &locationAreasResp)
@@ -542,7 +544,6 @@ func commandMapb(cfg *config, args ...string) error {
 		return nil
 	}
 
-	// Make API request
 	res, err := http.Get(*cfg.previousLocationURL)
 	if err != nil {
 		return err
@@ -554,7 +555,6 @@ func commandMapb(cfg *config, args ...string) error {
 		return err
 	}
 
-	// Add to cache
 	cfg.pokeapiClient.Add(*cfg.previousLocationURL, body)
 
 	var locationAreasResp RespShallowLocations
@@ -582,7 +582,6 @@ func commandExplore(cfg *config, args ...string) error {
 
 	fmt.Printf("Exploring %s...\n", areaName)
 
-	// Check cache first
 	if val, ok := cfg.pokeapiClient.Get(url); ok {
 		var locationAreaResp RespLocationArea
 		err := json.Unmarshal(val, &locationAreaResp)
@@ -597,7 +596,6 @@ func commandExplore(cfg *config, args ...string) error {
 		return nil
 	}
 
-	// Make API request
 	res, err := http.Get(url)
 	if err != nil {
 		return err
@@ -609,7 +607,6 @@ func commandExplore(cfg *config, args ...string) error {
 		return err
 	}
 
-	// Add to cache
 	cfg.pokeapiClient.Add(url, body)
 
 	var locationAreaResp RespLocationArea
@@ -638,16 +635,12 @@ func commandCatch(cfg *config, args ...string) error {
 		return err
 	}
 
-	// Calculate catch probability based on base experience
-	// Higher base experience = harder to catch
-	// Base experience typically ranges from ~50-600+
-	// We'll use a formula where catch rate decreases with higher base experience
 	catchThreshold := 50 + (pokemon.BaseExperience / 3)
 	if catchThreshold > 255 {
 		catchThreshold = 255
 	}
 
-	randNum := rand.Intn(256) // 0-255
+	randNum := rand.Intn(256)
 
 	if randNum < catchThreshold {
 		fmt.Printf("%s escaped!\n", pokemonName)
@@ -656,8 +649,36 @@ func commandCatch(cfg *config, args ...string) error {
 
 	fmt.Printf("%s was caught!\n", pokemonName)
 
-	// Add to caught pokemon
 	cfg.caughtPokemon[pokemonName] = pokemon
+
+	return nil
+}
+
+func commandInspect(cfg *config, args ...string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: inspect <pokemon_name>")
+	}
+
+	pokemonName := args[0]
+
+	pokemon, exists := cfg.caughtPokemon[pokemonName]
+	if !exists {
+		fmt.Println("you have not caught that pokemon")
+		return nil
+	}
+
+	fmt.Printf("Name: %s\n", pokemon.Name)
+	fmt.Printf("Height: %d\n", pokemon.Height)
+	fmt.Printf("Weight: %d\n", pokemon.Weight)
+	fmt.Println("Stats:")
+	for _, stat := range pokemon.Stats {
+		fmt.Printf("  -%s: %d\n", stat.Stat.Name, stat.BaseStat)
+	}
+	fmt.Println("Types:")
+	for _, typeInfo := range pokemon.Types {
+		fmt.Printf("  - %s\n", typeInfo.Type.Name)
+	}
+	fmt.Println()
 
 	return nil
 }
@@ -665,14 +686,12 @@ func commandCatch(cfg *config, args ...string) error {
 func getPokemon(cfg *config, pokemonName string) (RespPokemon, error) {
 	url := "https://pokeapi.co/api/v2/pokemon/" + pokemonName
 
-	// Check cache first
 	if val, ok := cfg.pokeapiClient.Get(url); ok {
 		var pokemonResp RespPokemon
 		err := json.Unmarshal(val, &pokemonResp)
 		return pokemonResp, err
 	}
 
-	// Make API request
 	res, err := http.Get(url)
 	if err != nil {
 		return RespPokemon{}, err
@@ -684,7 +703,6 @@ func getPokemon(cfg *config, pokemonName string) (RespPokemon, error) {
 		return RespPokemon{}, err
 	}
 
-	// Add to cache
 	cfg.pokeapiClient.Add(url, body)
 
 	var pokemonResp RespPokemon
