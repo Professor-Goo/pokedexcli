@@ -8,9 +8,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/Professor-Goo/pokedexcli/internal/pokecache"
 )
 
 type config struct {
+	pokeapiClient       pokecache.Cache
 	nextLocationURL     *string
 	previousLocationURL *string
 }
@@ -32,7 +36,11 @@ type cliCommand struct {
 }
 
 func main() {
-	cfg := &config{}
+	pokeClient := pokecache.NewCache(5 * time.Minute)
+	cfg := &config{
+		pokeapiClient: pokeClient,
+	}
+
 	commands := getCommands()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -114,6 +122,26 @@ func commandMap(cfg *config) error {
 		locationAreasURL = *cfg.nextLocationURL
 	}
 
+	// Check cache first
+	if val, ok := cfg.pokeapiClient.Get(locationAreasURL); ok {
+		fmt.Println("(Cache hit)")
+		var locationAreasResp RespShallowLocations
+		err := json.Unmarshal(val, &locationAreasResp)
+		if err != nil {
+			return err
+		}
+
+		cfg.nextLocationURL = locationAreasResp.Next
+		cfg.previousLocationURL = locationAreasResp.Previous
+
+		for _, loc := range locationAreasResp.Results {
+			fmt.Println(loc.Name)
+		}
+		return nil
+	}
+
+	// Make API request
+	fmt.Println("(Making API request)")
 	res, err := http.Get(locationAreasURL)
 	if err != nil {
 		return err
@@ -124,6 +152,9 @@ func commandMap(cfg *config) error {
 	if err != nil {
 		return err
 	}
+
+	// Add to cache
+	cfg.pokeapiClient.Add(locationAreasURL, body)
 
 	var locationAreasResp RespShallowLocations
 	err = json.Unmarshal(body, &locationAreasResp)
@@ -146,6 +177,26 @@ func commandMapb(cfg *config) error {
 		return nil
 	}
 
+	// Check cache first
+	if val, ok := cfg.pokeapiClient.Get(*cfg.previousLocationURL); ok {
+		fmt.Println("(Cache hit)")
+		var locationAreasResp RespShallowLocations
+		err := json.Unmarshal(val, &locationAreasResp)
+		if err != nil {
+			return err
+		}
+
+		cfg.nextLocationURL = locationAreasResp.Next
+		cfg.previousLocationURL = locationAreasResp.Previous
+
+		for _, loc := range locationAreasResp.Results {
+			fmt.Println(loc.Name)
+		}
+		return nil
+	}
+
+	// Make API request
+	fmt.Println("(Making API request)")
 	res, err := http.Get(*cfg.previousLocationURL)
 	if err != nil {
 		return err
@@ -156,6 +207,9 @@ func commandMapb(cfg *config) error {
 	if err != nil {
 		return err
 	}
+
+	// Add to cache
+	cfg.pokeapiClient.Add(*cfg.previousLocationURL, body)
 
 	var locationAreasResp RespShallowLocations
 	err = json.Unmarshal(body, &locationAreasResp)
